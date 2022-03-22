@@ -1,0 +1,15 @@
+[Unit]
+Description=Sanskrit bot
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/environment
+ExecStart=/home/SanskritBot/venv/bin/python main.py
+ExecReload=/home/SanskritBot/venv/bin/python main.py
+WorkingDirectory=/home/SanskritBot/
+KillMode=process
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
