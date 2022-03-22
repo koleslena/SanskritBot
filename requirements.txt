@@ -1,2 +1,3 @@
 indic_transliteration
 requests
+telebot
