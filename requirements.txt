@@ -1,2 +1,2 @@
 indic_transliteration
-urllib
+requests
