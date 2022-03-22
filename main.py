@@ -1,9 +1,9 @@
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import SchemeMap, SCHEMES, transliterate
 
+import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import urllib.request
-import telebot
 import io
 import datetime
 import os
