@@ -1,3 +1,4 @@
+pyTelegramBotAPI
 indic_transliteration
 requests
 telebot
