@@ -1,5 +1,5 @@
-from indic_transliteration import sanscript
-from indic_transliteration.sanscript import SchemeMap, SCHEMES, transliterate
+from indic_transliteration import sanscript, detect
+from indic_transliteration.sanscript import transliterate
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -24,7 +24,7 @@ TOKEN = os.environ.get("sansbot_token")
 
 bot = telebot.TeleBot(TOKEN)
 selectedAction = {}
-URL_MV = "https://sanskrit-lexicon.uni-koeln.de/scans/MWScan/2020/web/webtc/getword.php?key={word}&filter=roman&accent=no&transLit=hk"
+URL_MV = "https://sanskrit-lexicon.uni-koeln.de/scans/MWScan/2020/web/webtc/getword.php?%s"
 
 def gen_markup():
     markup = InlineKeyboardMarkup()
@@ -35,13 +35,23 @@ def gen_markup():
 
 def get_translit(s):
     try:
-        return transliterate(s, sanscript.ITRANS, sanscript.DEVANAGARI);
+        if detect.detect(s) == sanscript.DEVANAGARI:
+            return transliterate(s, sanscript.DEVANAGARI, sanscript.ITRANS);
+        elif detect.detect(s) == sanscript.ITRANS:
+            return transliterate(s, sanscript.ITRANS, sanscript.DEVANAGARI);
+        elif detect.detect(s) == sanscript.HK:
+            return transliterate(s, sanscript.HK, sanscript.DEVANAGARI);
     except Exception as e:
         return 'Ooopss..'
         
 def get_translate(s):
     try:
-        ans = urllib.request.urlopen(URL_MV.format(word=s)).read().decode("utf-8")
+        translit = 'kh'
+        if detect.detect(s) == sanscript.DEVANAGARI:
+            translit = 'deva'
+        params = urllib.parse.urlencode({'key': s, 'filter': 'roman', 'baccent': 'no', 'transLit': translit})
+        url = URL_MV % params
+        ans = urllib.request.urlopen(url).read().decode("utf-8")
         return ans[ans.find('<body>') + 6:len(ans)]
     except Exception as e:
         return 'Ooopss..'
@@ -64,19 +74,19 @@ def get_answer(message):
 def send_welcome(message):
     msg = bot.send_message(message.chat.id, f"""\
     Hi, {message.from_user.first_name}, I am SanskritBot.
-    I can transliterate ITRANS -> DEVANAGARI \
+    I can transliterate to/from DEVANAGARI \
     and translate Sanskrit -> English (MV).
     Choose the action \
-""", reply_markup=gen_markup())
+    """, reply_markup=gen_markup())
             
 # Handle '/help'
 @bot.message_handler(commands=['help'])
 def send_help(message):
     msg = bot.send_message(message.chat.id, f"""\
-    I can transliterate ITRANS -> DEVANAGARI \
+    I can transliterate to/from DEVANAGARI \
     and translate Sanskrit -> English (MV) \
     Choose the action ? \
-""", reply_markup=gen_markup())
+    """, reply_markup=gen_markup())
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
