@@ -23,7 +23,7 @@ logging.basicConfig(
 
 TOKEN = os.environ.get("sansbot_token")
 
-bot = telebot.TeleBot(TOKEN)
+bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 selectedAction = {}
 URL_MV = "https://sanskrit-lexicon.uni-koeln.de/scans/MWScan/2020/web/webtc/getword.php?%s"
 
