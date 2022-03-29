@@ -64,7 +64,7 @@ def gen_markup_dicts():
 def get_translit(s):
     try:
         if detect.detect(s) == sanscript.DEVANAGARI:
-            return transliterate(s, sanscript.ITRANS, sanscript.DEVANAGARI)
+            return transliterate(s, sanscript.DEVANAGARI, sanscript.IAST)
         elif detect.detect(s) == sanscript.IAST:
             return transliterate(s, sanscript.IAST, sanscript.DEVANAGARI)
         elif detect.detect(s) == sanscript.ITRANS:
