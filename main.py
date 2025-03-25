@@ -3,12 +3,11 @@ from indic_transliteration.sanscript import transliterate
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-import urllib.request
+import requests
 import datetime
 import os
 import logging
-from DictParser import DictParser
-from markdown_util import parse_answer
+from response_parser import parse
 
 APT = "AP90"
 WIL = "WIL"
@@ -30,10 +29,17 @@ logging.basicConfig(
 
 TOKEN = os.environ.get("sansbot_token")
 
+message_size = 2000
+
+class Settings:
+    def __init__(self, action):
+        self.action = action
+        self.sdict = MW
+        
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 selectedAction = {}
-URL_DICT = "https://sanskrit-lexicon.uni-koeln.de/scans/{}Scan/2020/web/webtc/getword.php?%s"
 
+URL_DICT = "http://127.0.0.1:4000/api/search?term={}&dict={}"
 
 def gen_main_menu():
     markup = ReplyKeyboardMarkup(True, False)
@@ -55,61 +61,95 @@ def gen_markup_dicts():
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
     markup.add(InlineKeyboardButton("MW", callback_data=MW),
-               InlineKeyboardButton("WILSON", callback_data=WIL),
-               InlineKeyboardButton("APTE", callback_data=APT),
+               #InlineKeyboardButton("WILSON", callback_data=WIL),
+               #InlineKeyboardButton("APTE", callback_data=APT),
                )
     return markup
 
+def clean_text(text):
+    return text.strip().lstrip().rstrip().replace(',', '').replace(';', '').replace('.', '') if text else ""
 
-def get_translit(s):
+def get_translit(message):
     try:
-        if detect.detect(s) == sanscript.DEVANAGARI:
-            return transliterate(s, sanscript.DEVANAGARI, sanscript.IAST)
-        elif detect.detect(s) == sanscript.IAST:
-            return transliterate(s, sanscript.IAST, sanscript.DEVANAGARI)
-        elif detect.detect(s) == sanscript.ITRANS:
-            return transliterate(s, sanscript.DEVANAGARI, sanscript.HK)
-        elif detect.detect(s) == sanscript.HK:
-            return transliterate(s, sanscript.HK, sanscript.DEVANAGARI)
+        term = clean_text(message.text)
+        if detect.detect(term) == sanscript.DEVANAGARI:
+            return transliterate(term, sanscript.DEVANAGARI, sanscript.IAST)
+        elif detect.detect(term) == sanscript.IAST:
+            return transliterate(term, sanscript.IAST, sanscript.DEVANAGARI)
+        elif detect.detect(term) == sanscript.ITRANS:
+            return transliterate(term, sanscript.DEVANAGARI, sanscript.HK)
+        elif detect.detect(term) == sanscript.HK:
+            return transliterate(term, sanscript.HK, sanscript.DEVANAGARI)
     except Exception as e:
         logger.error(e)
         return 'Ooopss..'
 
-
-def get_lines(answer):
-    parser = DictParser()
-    parser.feed(answer)
-    lines = parser.get_cleaned_answer()
-    return lines
-
-
-def get_translate(s):
+def get_translate(message):
     try:
-        translit_ = 'hk'
-        if detect.detect(s) == sanscript.DEVANAGARI:
-            translit_ = 'deva'
-        params = urllib.parse.urlencode({'key': s, 'filter': 'roman', 'accent': 'no', 'transLit': translit_})
-        dict_ = MW
-        if selectedAction.get('dict'):
-            dict_ = selectedAction['dict']
-        url = URL_DICT.format(dict_) % params
-        ans = urllib.request.urlopen(url).read().decode("utf-8")
-        return parse_answer(get_lines(ans), url)
+        term = clean_text(message.text)
+        if detect.detect(term) == sanscript.IAST:
+            term = transliterate(term, sanscript.IAST, sanscript.SLP1)
+        elif detect.detect(term) == sanscript.DEVANAGARI:
+            term = transliterate(term, sanscript.DEVANAGARI, sanscript.SLP1)
+        elif detect.detect(term) == sanscript.HK:
+            term = transliterate(term, sanscript.HK, sanscript.SLP1)
+        chat_id = message.chat.id
+        sdict = selectedAction[chat_id].sdict if selectedAction[chat_id].sdict else MW
+        url = URL_DICT.format(term, sdict)
+        resp = requests.get(url)
+        return parse(resp.json()) if resp.text else "🤷"
     except Exception as e:
         logger.error(e)
-        return 'Ooopss..'
+        return ['Ooopss..😢']
 
+def cut_chunk(str):
+    ancore = len(str)
+    for i in range(len(str) - 1, -1, -1):
+        if str[i] == '<' and str[i + 1] != '/':
+            ancore = i
+            break
+    return str[:ancore], ancore
+
+def cut_answer(answer):
+    answer_size = len(answer)
+    
+    if answer_size > message_size:
+        lst = []
+        chunks = 2
+        chunk_size = message_size
+        for i in range(2, 10):
+            chunks = i
+            chunk_size = answer_size // i
+            if answer_size // i < message_size:
+                break
+        ancore = 0
+        for i in range(chunks):
+            mes, ancore_i = cut_chunk(answer[ancore: ancore+chunk_size if ancore+chunk_size < answer_size else answer_size])
+            ancore += ancore_i
+            lst.append(mes)
+        return lst
+    return [answer]
 
 def get_answer(message):
     try:
-        if selectedAction['action'] == TRANSLIT:
-            bot.send_message(message.chat.id, get_translit(message.text))
-        elif selectedAction['action'] == TRANSLATE:
-            bot.send_message(message.chat.id, get_translate(message.text))
+        chat_id = message.chat.id
+        if chat_id not in selectedAction:
+            selectedAction[chat_id] = Settings(TRANSLATE)
+        if selectedAction[chat_id].action == TRANSLIT:
+            bot.send_message(message.chat.id, get_translit(message))
+        elif selectedAction[chat_id].action == TRANSLATE:
+            lst = get_translate(message)
+            res_answer = '\n'.join(lst)
+            if len(res_answer) < message_size:
+                bot.send_message(message.chat.id, res_answer)
+            else:
+                for answer in lst:
+                    for part_answer in cut_answer(answer):
+                        bot.send_message(message.chat.id, part_answer)
     except Exception as e:
         logger.error(e)
         bot.send_message(message.chat.id, "Please choose the action")
-        return 'Ooopss..'
+        return 'Ooopss..😢'
 
 
 # Handle '/actions'
@@ -134,7 +174,7 @@ def send_welcome(message):
     msg = bot.send_message(message.chat.id, f"""\
     Hi, <i>{message.from_user.first_name}</i>, I am SanskritBot.
     I can transliterate to/from DEVANAGARI \
-    and translate Sanskrit -> English (MW).
+    and translate Sanskrit -> English (MW). \
     Please choose the action \
     """, reply_markup=gen_main_menu())
 
@@ -152,25 +192,19 @@ def send_help(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     try:
-        if call.data == TRANSLIT:
-            selectedAction['action'] = TRANSLIT
+        chat_id = call.message.chat.id
+        if call.data == TRANSLIT or call.data == TRANSLATE:
+            if chat_id in selectedAction:
+                selectedAction[chat_id].action = call.data
+            else:
+                selectedAction[chat_id] = Settings(call.data)
+            text = "Send your text" if call.data == TRANSLIT else "Send your text or choose the dictionary" 
+            bot.send_message(call.from_user.id, text)
+
+        elif call.data == MW or call.data == WIL or call.data == APT:
+            selectedAction[chat_id].sdict = call.data
             bot.send_message(call.from_user.id, "Send your text")
 
-        elif call.data == TRANSLATE:
-            selectedAction['action'] = TRANSLATE
-            bot.send_message(call.from_user.id, "Send your text or choose the dictionary")
-
-        elif call.data == MW:
-            selectedAction['dict'] = MW
-            bot.send_message(call.from_user.id, "Send your text")
-
-        elif call.data == WIL:
-            selectedAction['dict'] = WIL
-            bot.send_message(call.from_user.id, "Send your text")
-
-        elif call.data == APT:
-            selectedAction['dict'] = APT
-            bot.send_message(call.from_user.id, "Send your text")
     except:
         bot.send_message(call.from_user.id, 'something went wrong try again later')
 
