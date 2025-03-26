@@ -123,9 +123,12 @@ def cut_answer(answer):
             if answer_size // i < message_size:
                 break
         ancore = 0
-        for i in range(chunks):
-            mes, ancore_i = cut_chunk(answer[ancore: ancore+chunk_size if ancore+chunk_size < answer_size else answer_size])
-            ancore += ancore_i
+        for i in range(chunks + 1):
+            if ancore+chunk_size < answer_size:
+                mes, ancore_i = cut_chunk(answer[ancore: ancore+chunk_size])
+                ancore += ancore_i 
+            else:
+                mes = answer[ancore: answer_size]
             lst.append(mes)
         return lst
     return [answer]
