@@ -201,11 +201,13 @@ def callback_query(call):
                 selectedAction[chat_id].action = call.data
             else:
                 selectedAction[chat_id] = Settings(call.data)
+            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
             text = "Send your text" if call.data == TRANSLIT else "Send your text or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
 
         elif call.data == MW or call.data == WIL or call.data == APT:
             selectedAction[chat_id].sdict = call.data
+            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
             bot.send_message(call.from_user.id, "Send your text")
 
     except:
