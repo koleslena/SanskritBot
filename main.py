@@ -149,9 +149,11 @@ def get_answer(message):
                 for answer in lst:
                     for part_answer in cut_answer(answer):
                         bot.send_message(message.chat.id, part_answer)
+        else:
+            bot.send_message(message.chat.id, "Please choose the action /actions")
     except Exception as e:
         logger.error(e)
-        bot.send_message(message.chat.id, "Please choose the action")
+        bot.send_message(message.chat.id, "something went wrong try again later")
         return 'Ooopss..😢'
 
 
@@ -176,9 +178,10 @@ def handle_dicts(message):
 def send_welcome(message):
     msg = bot.send_message(message.chat.id, f"""\
     Hi, <i>{message.from_user.first_name}</i>, I am SanskritBot.
-    I can transliterate to/from DEVANAGARI \
-    and translate Sanskrit -> English (MW). \
-    Please choose the action \
+    \n\nI can transliterate to or from DEVANAGARI and translate Sanskrit -> English (MW). \
+    \n\nPlease choose the action /actions \
+    \n\nFor choosing dictionary call /dicts, by default we use MW \
+    \n\nFor help use /help command \
     """, reply_markup=gen_main_menu())
 
 
@@ -186,9 +189,10 @@ def send_welcome(message):
 @bot.message_handler(commands=['help'])
 def send_help(message):
     msg = bot.send_message(message.chat.id, f"""\
-    I can transliterate to/from DEVANAGARI \
-    and translate Sanskrit -> English (MW) \
-    Please choose the action  \
+    \n\nI can transliterate to or from DEVANAGARI and translate Sanskrit -> English (MW) \
+    \n\nPlease choose the action /actions \
+    \n\nFor choosing dictionary call /dicts, by default we use MW \
+    \n\nDictionaries data from https://sanskrit-lexicon.uni-koeln.de/ \
 """, reply_markup=gen_main_menu())
 
 
