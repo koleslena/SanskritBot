@@ -12,6 +12,8 @@ from response_parser import parse
 APT = "AP90"
 WIL = "WIL"
 MW = "MW"
+PW = "PW"
+PWG = "PWG"
 
 TRANSLATE = "translate"
 TRANSLIT = "translit"
@@ -61,6 +63,8 @@ def gen_markup_dicts():
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
     markup.add(InlineKeyboardButton("MW", callback_data=MW),
+               InlineKeyboardButton("PW", callback_data=PW),
+               InlineKeyboardButton("PWG", callback_data=PWG),
                #InlineKeyboardButton("WILSON", callback_data=WIL),
                #InlineKeyboardButton("APTE", callback_data=APT),
                )
@@ -97,14 +101,14 @@ def get_translate(message):
         sdict = selectedAction[chat_id].sdict if selectedAction[chat_id].sdict else MW
         url = URL_DICT.format(term, sdict)
         resp = requests.get(url)
-        return parse(resp.json()) if resp.text else "🤷"
+        return parse(resp.json()) if resp.status_code // 10 == 20 and resp.text else "🤷"
     except Exception as e:
         logger.error(e)
         return ['Ooopss..😢']
 
 def cut_chunk(str):
     ancore = len(str)
-    for i in range(len(str) - 1, -1, -1):
+    for i in range(len(str) - 2, -1, -1):
         if str[i] == '<' and str[i + 1] != '/':
             ancore = i
             break
@@ -112,21 +116,21 @@ def cut_chunk(str):
 
 def cut_answer(answer):
     answer_size = len(answer)
-    
+
     if answer_size > message_size:
         lst = []
         chunks = 2
         chunk_size = message_size
-        for i in range(2, 10):
+        for i in range(2, 50):
             chunks = i
             chunk_size = answer_size // i
             if answer_size // i < message_size:
                 break
         ancore = 0
         for i in range(chunks + 1):
-            if ancore+chunk_size < answer_size:
+            if ancore+chunk_size <= answer_size:
                 mes, ancore_i = cut_chunk(answer[ancore: ancore+chunk_size])
-                ancore += ancore_i 
+                ancore += ancore_i
             else:
                 mes = answer[ancore: answer_size]
             lst.append(mes)
@@ -143,18 +147,20 @@ def get_answer(message):
         elif selectedAction[chat_id].action == TRANSLATE:
             lst = get_translate(message)
             res_answer = '\n'.join(lst)
-            if len(res_answer) < message_size:
-                bot.send_message(message.chat.id, res_answer)
+            if len(res_answer) != 0:
+                if len(res_answer) < message_size:
+                    bot.send_message(message.chat.id, res_answer)
+                else:
+                    for answer in lst:
+                        for part_answer in cut_answer(answer):
+                            bot.send_message(message.chat.id, part_answer)
             else:
-                for answer in lst:
-                    for part_answer in cut_answer(answer):
-                        bot.send_message(message.chat.id, part_answer)
+                bot.send_message(message.chat.id, "🤷")
         else:
             bot.send_message(message.chat.id, "Please choose the action /actions")
     except Exception as e:
         logger.error(e)
-        bot.send_message(message.chat.id, "something went wrong try again later")
-        return 'Ooopss..😢'
+        bot.send_message(message.chat.id, "something went wrong 😢 try again later")
 
 
 # Handle '/actions'
@@ -170,6 +176,9 @@ def handle_actions(message):
 def handle_dicts(message):
     msg = bot.send_message(message.chat.id, f"""\
     Please choose the dictionary \
+    \n\n<b>MW</b>  -- Monier-Williams Sanskrit-English Dictionary \
+    \n\n<b>PW</b>  -- Böhtlingk Sanskrit-Wörterbuch in kürzerer Fassung \
+    \n\n<b>PWG</b> -- Böhtlingk and Roth Grosses Petersburger Wörterbuch \
     """, reply_markup=gen_markup_dicts())
 
 
@@ -200,20 +209,21 @@ def send_help(message):
 def callback_query(call):
     try:
         chat_id = call.message.chat.id
+        if chat_id not in selectedAction:
+            selectedAction[chat_id] = Settings(TRANSLATE)
         if call.data == TRANSLIT or call.data == TRANSLATE:
-            if chat_id in selectedAction:
-                selectedAction[chat_id].action = call.data
-            else:
-                selectedAction[chat_id] = Settings(call.data)
+            selectedAction[chat_id].action = call.data
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            text = "Send your text" if call.data == TRANSLIT else "Send your text or choose the dictionary" 
+            text = f"Selected {call.data} Send your text" if call.data == TRANSLIT else f"Selected {call.data} Send your text or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
 
-        elif call.data == MW or call.data == WIL or call.data == APT:
+        elif call.data in [MW, PW, PWG, WIL, APT]:
             selectedAction[chat_id].sdict = call.data
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            bot.send_message(call.from_user.id, "Send your text")
+            bot.send_message(call.from_user.id, f"Selected {call.data} Send your text")
 
+        else:
+            bot.send_message(call.from_user.id, "🤷")
     except:
         bot.send_message(call.from_user.id, 'something went wrong try again later')
 

@@ -1,3 +1,5 @@
+import re
+
 from html.parser import HTMLParser
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
@@ -17,7 +19,6 @@ def parse_line(key, text):
   parser.feed(text)
 
   ans = parser.get_answer()
-  #print(ans)
   return f"* <b>{transliterate(key, sanscript.SLP1, sanscript.IAST)}</b> \n {ans}"
 
 def get_arab_num(txt):
@@ -42,17 +43,17 @@ class Parser(HTMLParser):
     def handle_data(self, data):
         if self.get_starttag_text() == "<s>" and self.__n_middle:
             if self.__key + '/' != data:
-              text = transliterate(data.rstrip(), sanscript.SLP1, sanscript.IAST)
-              self.__result += f"<i>{text}</i> "
+              text = transliterate(data.rstrip().replace("/", ""), sanscript.SLP1, sanscript.IAST)
+              self.__result += f"<i>{text}</i>"
         elif data.startswith("Pāṇ."):
             lst = data.split(", ")
             self.__result += Panini_url.format(get_arab_num(lst[0]), lst[1], lst[2], data)
         elif self.get_starttag_text() != None and not self.get_starttag_text().startswith("<key") and self.get_starttag_text() not in ["<L>", "<pc>", "<hom>"]:
-            self.__result += data.lstrip()
+            self.__result += re.sub(' +', ' ', data)
 
     def handle_endtag(self, tag):
         self.__n_middle = False
 
     def get_answer(self):
-        return self.__result
+        return self.__result.lstrip()
 
