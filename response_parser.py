@@ -35,24 +35,29 @@ class Parser(HTMLParser):
         self.reset()
         self.__key = key
         self.__result = ""
-        self.__n_middle = False
+        self.__in_middle = False
 
     def handle_starttag(self, tag, attrs):
-        self.__n_middle = True
+        self.__in_middle = True
 
     def handle_data(self, data):
-        if self.get_starttag_text() == "<s>" and self.__n_middle:
+        if self.get_starttag_text() == "<s>" and self.__in_middle:
             if self.__key + '/' != data:
               text = transliterate(data.rstrip().replace("/", ""), sanscript.SLP1, sanscript.IAST)
               self.__result += f"<i>{text}</i>"
         elif data.startswith("Pāṇ."):
             lst = data.split(", ")
-            self.__result += Panini_url.format(get_arab_num(lst[0]), lst[1], lst[2], data)
-        elif self.get_starttag_text() != None and not self.get_starttag_text().startswith("<key") and self.get_starttag_text() not in ["<L>", "<pc>", "<hom>"]:
-            self.__result += re.sub(' +', ' ', data)
+            if len(lst) == 3:
+              self.__result += Panini_url.format(get_arab_num(lst[0]), lst[1], lst[2], data)
+            else:
+              self.__result += data
+        elif self.get_starttag_text() != None and not self.get_starttag_text().startswith("<key") and \
+            (self.get_starttag_text() not in ["<L>", "<pc>", "<hom>"] or \
+            (self.get_starttag_text() in ["<hom>"] and not self.__in_middle)):
+              self.__result += re.sub(' +', ' ', data)
 
     def handle_endtag(self, tag):
-        self.__n_middle = False
+        self.__in_middle = False
 
     def get_answer(self):
         return self.__result.lstrip()

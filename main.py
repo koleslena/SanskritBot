@@ -84,6 +84,8 @@ def get_translit(message):
             return transliterate(term, sanscript.DEVANAGARI, sanscript.HK)
         elif detect.detect(term) == sanscript.HK:
             return transliterate(term, sanscript.HK, sanscript.DEVANAGARI)
+        else:
+            return transliterate(term, sanscript.SLP1, sanscript.DEVANAGARI)
     except Exception as e:
         logger.error(e)
         return 'Ooopss..'
