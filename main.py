@@ -3,11 +3,11 @@ from indic_transliteration.sanscript import transliterate
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-import requests
 import datetime
 import os
 import logging
 from response_parser import parse
+from dicts_service import get_translation, get_suggestion
 
 APT = "AP90"
 WIL = "WIL"
@@ -33,6 +33,8 @@ TOKEN = os.environ.get("sansbot_token")
 
 message_size = 2000
 
+SUGGEST_ANSWER = "❓"
+
 class Settings:
     def __init__(self, action):
         self.action = action
@@ -40,8 +42,6 @@ class Settings:
         
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 selectedAction = {}
-
-URL_DICT = "http://127.0.0.1:4000/api/search?term={}&dict={}"
 
 def gen_main_menu():
     markup = ReplyKeyboardMarkup(True, False)
@@ -92,21 +92,30 @@ def get_translit(message):
 
 def get_translate(message):
     try:
-        term = clean_text(message.text)
-        if detect.detect(term) == sanscript.IAST:
-            term = transliterate(term, sanscript.IAST, sanscript.SLP1)
-        elif detect.detect(term) == sanscript.DEVANAGARI:
-            term = transliterate(term, sanscript.DEVANAGARI, sanscript.SLP1)
-        elif detect.detect(term) == sanscript.HK:
-            term = transliterate(term, sanscript.HK, sanscript.SLP1)
+        input_alp = 'slp1'
+        term = orig_term = clean_text(message.text)
+        if not message.reply_markup:
+            if detect.detect(term) == sanscript.IAST:
+                input_alp = 'iast'
+                term = transliterate(term, sanscript.IAST, sanscript.SLP1)
+            elif detect.detect(term) == sanscript.DEVANAGARI:
+                input_alp = 'deva'
+                term = transliterate(term, sanscript.DEVANAGARI, sanscript.SLP1)
+            elif detect.detect(term) == sanscript.HK:
+                input_alp = 'hk'
+                term = transliterate(term, sanscript.HK, sanscript.SLP1)
         chat_id = message.chat.id
         sdict = selectedAction[chat_id].sdict if selectedAction[chat_id].sdict else MW
-        url = URL_DICT.format(term, sdict)
-        resp = requests.get(url)
-        return parse(resp.json()) if resp.status_code // 10 == 20 and resp.text else "🤷"
+        resp = get_translation(term, sdict)
+        ret = sugg = []
+        if resp.status_code // 10 == 20 and resp.text:
+            ret = parse(resp.json())
+        if len(ret) == 0:
+            sugg = get_suggestion(orig_term, sdict, input_alp)
+        return ret, sugg
     except Exception as e:
         logger.error(e)
-        return ['Ooopss..😢']
+        return ['Ooopss..😢'], []
 
 def cut_chunk(str):
     ancore = len(str)
@@ -147,7 +156,7 @@ def get_answer(message):
         if selectedAction[chat_id].action == TRANSLIT:
             bot.send_message(message.chat.id, get_translit(message))
         elif selectedAction[chat_id].action == TRANSLATE:
-            lst = get_translate(message)
+            lst, sugg = get_translate(message)
             res_answer = '\n'.join(lst)
             if len(res_answer) != 0:
                 if len(res_answer) < message_size:
@@ -157,7 +166,14 @@ def get_answer(message):
                         for part_answer in cut_answer(answer):
                             bot.send_message(message.chat.id, part_answer)
             else:
-                bot.send_message(message.chat.id, "🤷")
+                if not sugg or len(sugg) == 0:
+                    bot.send_message(message.chat.id, "🤷")
+                else:
+                    markup = InlineKeyboardMarkup()
+                    markup.row_width = 1
+                    for s in sugg:
+                        markup.add(InlineKeyboardButton(s["name"], callback_data=s["value"]))
+                    bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
         else:
             bot.send_message(message.chat.id, "Please choose the action /actions")
     except Exception as e:
@@ -225,7 +241,12 @@ def callback_query(call):
             bot.send_message(call.from_user.id, f"Selected {call.data} Send your text")
 
         else:
-            bot.send_message(call.from_user.id, "🤷")
+            if call.message.text == SUGGEST_ANSWER:
+                call.message.text = call.data
+                get_answer(call.message)
+            else:
+                bot.send_message(call.from_user.id, "🤷")
+
     except:
         bot.send_message(call.from_user.id, 'something went wrong try again later')
 

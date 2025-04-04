@@ -16,7 +16,7 @@ def parse(data):
 
 def parse_line(key, text):
   parser = Parser(key)
-  parser.feed(text)
+  parser.feed(text.replace("<srs/>", ""))
 
   ans = parser.get_answer()
   return f"* <b>{transliterate(key, sanscript.SLP1, sanscript.IAST)}</b> \n {ans}"
