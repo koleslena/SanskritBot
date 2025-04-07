@@ -71,7 +71,7 @@ def gen_markup_dicts():
     return markup
 
 def clean_text(text):
-    return text.strip().lstrip().rstrip().replace(',', '').replace(';', '').replace('.', '') if text else ""
+    return text.strip().lstrip().rstrip().replace(',', '').replace(';', '').replace('.', '').replace('-', '') if text else ""
 
 def get_translit(message):
     try:
@@ -123,7 +123,7 @@ def cut_chunk(str):
         if str[i] == '<' and str[i + 1] != '/':
             ancore = i
             break
-    return str[:ancore], ancore
+    return (str[:ancore], ancore) if ancore != 2 else (str, len(str))
 
 def cut_answer(answer):
     answer_size = len(answer)
