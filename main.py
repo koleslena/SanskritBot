@@ -15,7 +15,10 @@ MW = "MW"
 PW = "PW"
 PWG = "PWG"
 
+AMARA = "AMARA"
+
 TRANSLATE = "translate"
+SYNONYMS = "amarakosha"
 TRANSLIT = "translit"
 
 logger = telebot.logger
@@ -54,8 +57,9 @@ def gen_main_menu():
 def gen_markup_actions():
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
-    markup.add(InlineKeyboardButton("TRANSLITERATE", callback_data=TRANSLIT),
-               InlineKeyboardButton("TRANSLATE", callback_data=TRANSLATE))
+    markup.add(InlineKeyboardButton("TRANSLATE", callback_data=TRANSLATE),
+               InlineKeyboardButton("AMARAKOSHA", callback_data=SYNONYMS),
+               InlineKeyboardButton("TRANSLITERATE", callback_data=TRANSLIT))
     return markup
 
 
@@ -109,7 +113,15 @@ def get_translate(message):
         resp = get_translation(term, sdict)
         ret = sugg = []
         if resp.status_code // 10 == 20 and resp.text:
-            ret = parse(resp.json())
+            if sdict == AMARA:
+                ret = resp.json()
+                if len(ret) != 0:
+                    ret = ret[0]
+                    if len(ret) != 0 and 'data' in ret.keys():
+                        data = transliterate(ret['data'], sanscript.SLP1, sanscript.IAST)
+                        ret = [data.replace("|", ".").replace("***", " || ").replace("**", " |\n").replace("*", "\n\n")]
+            else:
+                ret = parse(resp.json())
         if len(ret) == 0:
             sugg = get_suggestion(orig_term, sdict, input_alp)
         return ret, sugg
@@ -155,7 +167,7 @@ def get_answer(message):
             selectedAction[chat_id] = Settings(TRANSLATE)
         if selectedAction[chat_id].action == TRANSLIT:
             bot.send_message(message.chat.id, get_translit(message))
-        elif selectedAction[chat_id].action == TRANSLATE:
+        elif selectedAction[chat_id].action in [TRANSLATE, SYNONYMS]:
             lst, sugg = get_translate(message)
             res_answer = '\n'.join(lst)
             if len(res_answer) != 0:
@@ -229,10 +241,12 @@ def callback_query(call):
         chat_id = call.message.chat.id
         if chat_id not in selectedAction:
             selectedAction[chat_id] = Settings(TRANSLATE)
-        if call.data == TRANSLIT or call.data == TRANSLATE:
+        if call.data in [TRANSLIT, TRANSLATE, SYNONYMS]:
             selectedAction[chat_id].action = call.data
+            if call.data == SYNONYMS:
+                selectedAction[chat_id].sdict = AMARA
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            text = f"Selected {call.data} Send your text" if call.data == TRANSLIT else f"Selected {call.data} Send your text or choose the dictionary" 
+            text = f"Selected {call.data}. Send your word" if call.data in [TRANSLIT, SYNONYMS] else f"Selected {call.data}. Send your word or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
 
         elif call.data in [MW, PW, PWG, WIL, APT]:
