@@ -14,6 +14,9 @@ WIL = "WIL"
 MW = "MW"
 PW = "PW"
 PWG = "PWG"
+BHS = "BHS"
+
+DICTS = [APT, WIL, MW, PW, PWG, BHS]
 
 AMARA = "AMARA"
 
@@ -49,8 +52,9 @@ selectedAction = {}
 def gen_main_menu():
     markup = ReplyKeyboardMarkup(True, False)
     # markup.row_width = 2
-    markup.add(KeyboardButton("/actions"),
-               KeyboardButton("/dicts"))
+    markup.add(KeyboardButton("/menu"),
+               KeyboardButton("/dicts"),
+               KeyboardButton("/help"))
     return markup
 
 
@@ -69,8 +73,9 @@ def gen_markup_dicts():
     markup.add(InlineKeyboardButton("MW", callback_data=MW),
                InlineKeyboardButton("PW", callback_data=PW),
                InlineKeyboardButton("PWG", callback_data=PWG),
-               #InlineKeyboardButton("WILSON", callback_data=WIL),
-               #InlineKeyboardButton("APTE", callback_data=APT),
+               InlineKeyboardButton("WIL", callback_data=WIL),
+               InlineKeyboardButton("BHS", callback_data=BHS),
+               InlineKeyboardButton("APTE", callback_data=APT),
                )
     return markup
 
@@ -187,17 +192,17 @@ def get_answer(message):
                         markup.add(InlineKeyboardButton(s["name"], callback_data=s["value"]))
                     bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
         else:
-            bot.send_message(message.chat.id, "Please choose the action /actions")
+            bot.send_message(message.chat.id, "Please use menu /menu")
     except Exception as e:
         logger.error(e)
         bot.send_message(message.chat.id, "something went wrong 😢 try again later")
 
 
-# Handle '/actions'
-@bot.message_handler(commands=['actions'])
+# Handle '/menu'
+@bot.message_handler(commands=['menu'])
 def handle_actions(message):
     msg = bot.send_message(message.chat.id, f"""\
-    Please choose the action \
+    Please choose \
     """, reply_markup=gen_markup_actions())
 
 
@@ -209,6 +214,9 @@ def handle_dicts(message):
     \n\n<b>MW</b>  -- Monier-Williams Sanskrit-English Dictionary \
     \n\n<b>PW</b>  -- Böhtlingk Sanskrit-Wörterbuch in kürzerer Fassung \
     \n\n<b>PWG</b> -- Böhtlingk and Roth Grosses Petersburger Wörterbuch \
+    \n\n<b>APTE</b> -- Apte Practical Sanskrit-English Dictionary \
+    \n\n<b>WIL</b> -- Wilson Sanskrit-English Dictionary \
+    \n\n<b>BHS</b> -- Edgerton Buddhist Hybrid Sanskrit Dictionary \
     """, reply_markup=gen_markup_dicts())
 
 
@@ -217,8 +225,12 @@ def handle_dicts(message):
 def send_welcome(message):
     msg = bot.send_message(message.chat.id, f"""\
     Hi, <i>{message.from_user.first_name}</i>, I am SanskritBot.
-    \n\nI can transliterate to or from DEVANAGARI and translate Sanskrit -> English (MW). \
-    \n\nPlease choose the action /actions \
+    \n\nI can transliterate to or from DEVANAGARI \
+    \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
+    \n\ntranslate Sanskrit -> German (PW, PWG) \
+    \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
+    \n\nfind synonyms in AMARAKOSHA 
+    \n\nPlease use menu /menu \
     \n\nFor choosing dictionary call /dicts, by default we use MW \
     \n\nFor help use /help command \
     """, reply_markup=gen_main_menu())
@@ -228,10 +240,16 @@ def send_welcome(message):
 @bot.message_handler(commands=['help'])
 def send_help(message):
     msg = bot.send_message(message.chat.id, f"""\
-    \n\nI can transliterate to or from DEVANAGARI and translate Sanskrit -> English (MW) \
-    \n\nPlease choose the action /actions \
-    \n\nFor choosing dictionary call /dicts, by default we use MW \
+    \n\nI can transliterate to or from DEVANAGARI \
+    \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
+    \n\ntranslate Sanskrit -> German (PW, PWG) \
+    \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
+    \n\nfind synonyms in AMARAKOSHA 
+    \n\nPlease use menu /menu \
+    \n\nFor choosing dictionary call /dicts, by default we use MW 
     \n\nDictionaries data from https://sanskrit-lexicon.uni-koeln.de/ \
+    \n\nAmarakosha data from https://ashtadhyayi.com/ \
+    \n\nQuestions and suggestions @ekolesnikova \
 """, reply_markup=gen_main_menu())
 
 
@@ -246,13 +264,13 @@ def callback_query(call):
             if call.data == SYNONYMS:
                 selectedAction[chat_id].sdict = AMARA
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            text = f"Selected {call.data}. Send your word" if call.data in [TRANSLIT, SYNONYMS] else f"Selected {call.data}. Send your word or choose the dictionary" 
+            text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS] else f"{call.data} selected. Send your word or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
 
-        elif call.data in [MW, PW, PWG, WIL, APT]:
+        elif call.data in DICTS:
             selectedAction[chat_id].sdict = call.data
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            bot.send_message(call.from_user.id, f"Selected {call.data} Send your text")
+            bot.send_message(call.from_user.id, f"{call.data} selected. Send your text")
 
         else:
             if call.message.text == SUGGEST_ANSWER:
