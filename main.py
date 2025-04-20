@@ -1,5 +1,6 @@
 from indic_transliteration import sanscript, detect
 from indic_transliteration.sanscript import transliterate
+import prettytable as pt
 
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
@@ -8,6 +9,7 @@ import os
 import logging
 from response_parser import parse
 from dicts_service import get_translation, get_suggestion
+from shabda_service import get_forms
 
 APT = "AP90"
 WIL = "WIL"
@@ -18,11 +20,17 @@ BHS = "BHS"
 
 DICTS = [APT, WIL, MW, PW, PWG, BHS]
 
+VIBHACTIES = ['pr(N)', 'dv(Acc)', 'tr(I)', 'ca(D)', 'pa(Abl)', 'Sa(G)', 'sa(L)', 'samb(V)']
+VACANAM = ['Sing', 'Du', 'Pl']
+
+LINGAS = {'P': 'masc', 'N': 'neut', 'S': 'fem', 'A': 'all'}
+
 AMARA = "AMARA"
 
 TRANSLATE = "translate"
 SYNONYMS = "amarakosha"
 TRANSLIT = "translit"
+SHABDA = "shabda"
 
 logger = telebot.logger
 
@@ -63,6 +71,7 @@ def gen_markup_actions():
     markup.row_width = 2
     markup.add(InlineKeyboardButton("TRANSLATE", callback_data=TRANSLATE),
                InlineKeyboardButton("AMARAKOSHA", callback_data=SYNONYMS),
+               InlineKeyboardButton("SHABDA", callback_data=SHABDA),
                InlineKeyboardButton("TRANSLITERATE", callback_data=TRANSLIT))
     return markup
 
@@ -99,20 +108,25 @@ def get_translit(message):
         logger.error(e)
         return 'Ooopss..'
 
+def transliteration(term):
+    input_alp = 'slp1'
+    if detect.detect(term) == sanscript.IAST:
+        input_alp = 'iast'
+        term = transliterate(term, sanscript.IAST, sanscript.SLP1)
+    elif detect.detect(term) == sanscript.DEVANAGARI:
+        input_alp = 'deva'
+        term = transliterate(term, sanscript.DEVANAGARI, sanscript.SLP1)
+    elif detect.detect(term) == sanscript.HK:
+        input_alp = 'hk'
+        term = transliterate(term, sanscript.HK, sanscript.SLP1)
+    return term, input_alp
+
 def get_translate(message):
     try:
         input_alp = 'slp1'
         term = orig_term = clean_text(message.text)
         if not message.reply_markup:
-            if detect.detect(term) == sanscript.IAST:
-                input_alp = 'iast'
-                term = transliterate(term, sanscript.IAST, sanscript.SLP1)
-            elif detect.detect(term) == sanscript.DEVANAGARI:
-                input_alp = 'deva'
-                term = transliterate(term, sanscript.DEVANAGARI, sanscript.SLP1)
-            elif detect.detect(term) == sanscript.HK:
-                input_alp = 'hk'
-                term = transliterate(term, sanscript.HK, sanscript.SLP1)
+            term, input_alp = transliteration(term)
         chat_id = message.chat.id
         sdict = selectedAction[chat_id].sdict if selectedAction[chat_id].sdict else MW
         resp = get_translation(term, sdict)
@@ -191,6 +205,32 @@ def get_answer(message):
                     for s in sugg:
                         markup.add(InlineKeyboardButton(s["name"], callback_data=s["value"]))
                     bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
+        elif selectedAction[chat_id].action == SHABDA:
+            terms = message.text.split(";")
+            term, _ = transliteration(terms[0])
+            lst, suggest_lst = get_forms(term, "" if len(terms) == 1 else terms[1])
+            if len(lst) == 1:
+                forms = lst[0]['forms'].split(";")
+                for i in range(3):
+                    table = pt.PrettyTable(['Vibh', f'Form {VACANAM[i]}'])
+                    table.align['Vibh'] = 'l'
+                    table.align['Form'] = 'r'
+                    for vibh in range(len(VIBHACTIES)):
+                        form = transliterate(forms[vibh * 3 + i], sanscript.SLP1, sanscript.IAST).replace("-", ",\n")
+                        table.add_row([VIBHACTIES[vibh], form])
+                    bot.send_message(message.chat.id, f'<pre>{table}</pre>')
+            elif len(suggest_lst) != 0 or len(lst) != 0:
+                sugg = lst if len(lst) != 0 else suggest_lst
+                markup = InlineKeyboardMarkup()
+                markup.row_width = 1
+                for s in sugg:
+                    word = s['word']
+                    linga = s['linga']
+                    data = transliterate(word, sanscript.SLP1, sanscript.IAST)
+                    markup.add(InlineKeyboardButton(f'{data} ({LINGAS[linga]})', callback_data=f'{word};{linga}'))
+                bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
+            else:
+                bot.send_message(message.chat.id, "🤷")
         else:
             bot.send_message(message.chat.id, "Please use menu /menu")
     except Exception as e:
@@ -229,7 +269,8 @@ def send_welcome(message):
     \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
     \n\ntranslate Sanskrit -> German (PW, PWG) \
     \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
-    \n\nfind synonyms in AMARAKOSHA 
+    \n\nfind synonyms in AMARAKOSHA \
+    \n\nfind noun's forms in SHABDA 
     \n\nPlease use menu /menu \
     \n\nFor choosing dictionary call /dicts, by default we use MW \
     \n\nFor help use /help command \
@@ -244,7 +285,8 @@ def send_help(message):
     \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
     \n\ntranslate Sanskrit -> German (PW, PWG) \
     \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
-    \n\nfind synonyms in AMARAKOSHA 
+    \n\nfind synonyms in AMARAKOSHA \
+    \n\nfind noun's forms in SHABDA 
     \n\nPlease use menu /menu \
     \n\nFor choosing dictionary call /dicts, by default we use MW 
     \n\nDictionaries data from https://sanskrit-lexicon.uni-koeln.de/ \
@@ -259,12 +301,12 @@ def callback_query(call):
         chat_id = call.message.chat.id
         if chat_id not in selectedAction:
             selectedAction[chat_id] = Settings(TRANSLATE)
-        if call.data in [TRANSLIT, TRANSLATE, SYNONYMS]:
+        if call.data in [TRANSLIT, TRANSLATE, SYNONYMS, SHABDA]:
             selectedAction[chat_id].action = call.data
             if call.data == SYNONYMS:
                 selectedAction[chat_id].sdict = AMARA
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS] else f"{call.data} selected. Send your word or choose the dictionary" 
+            text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS, SHABDA] else f"{call.data} selected. Send your word or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
 
         elif call.data in DICTS:

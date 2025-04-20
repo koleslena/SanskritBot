@@ -2,7 +2,7 @@ import requests
 
 URL_SEARCH = "http://127.0.0.1:4000/api/search?term={}&dict={}"
 
-URL_SUGGEST = "http://127.0.0.1:4000/api/getSuggest?term={}&dict={}&input={}"
+URL_SUGGEST = "http://127.0.0.1:4000/api/dict/suggest?term={}&dict={}&input={}"
 
 def get_translation(term, dict):
     resp = []

@@ -1,4 +1,5 @@
 pyTelegramBotAPI
 indic_transliteration
+prettytable
 requests
 telebot
