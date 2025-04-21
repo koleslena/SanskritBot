@@ -207,7 +207,9 @@ def get_answer(message):
                     bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
         elif selectedAction[chat_id].action == SHABDA:
             terms = message.text.split(";")
-            term, _ = transliteration(terms[0])
+            term = terms[0]
+            if not message.reply_markup:
+                term, _ = transliteration(term)
             lst, suggest_lst = get_forms(term, "" if len(terms) == 1 else terms[1])
             if len(lst) == 1:
                 forms = lst[0]['forms'].split(";")
@@ -321,7 +323,8 @@ def callback_query(call):
             else:
                 bot.send_message(call.from_user.id, "🤷")
 
-    except:
+    except Exception as e:
+        logger.error(e)
         bot.send_message(call.from_user.id, 'something went wrong try again later')
 
 
