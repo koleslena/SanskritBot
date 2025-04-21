@@ -237,7 +237,7 @@ def get_answer(message):
             bot.send_message(message.chat.id, "Please use menu /menu")
     except Exception as e:
         logger.error(e)
-        bot.send_message(message.chat.id, "something went wrong 😢 try again later")
+        bot.send_message(message.chat.id, "❗️ something went wrong 😢 try again later")
 
 
 # Handle '/menu'
@@ -325,7 +325,7 @@ def callback_query(call):
 
     except Exception as e:
         logger.error(e)
-        bot.send_message(call.from_user.id, 'something went wrong try again later')
+        bot.send_message(call.from_user.id, '❗️ something went wrong try again later')
 
 
 @bot.edited_message_handler(func=lambda message: True)
