@@ -307,6 +307,8 @@ def callback_query(call):
             selectedAction[chat_id].action = call.data
             if call.data == SYNONYMS:
                 selectedAction[chat_id].sdict = AMARA
+            if call.data == TRANSLATE:
+                selectedAction[chat_id].sdict = MW
             bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
             text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS, SHABDA] else f"{call.data} selected. Send your word or choose the dictionary" 
             bot.send_message(call.from_user.id, text)
