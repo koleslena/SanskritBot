@@ -133,12 +133,12 @@ def get_translate(message):
         ret = sugg = []
         if resp.status_code // 10 == 20 and resp.text:
             if sdict == AMARA:
-                ret = resp.json()
-                if len(ret) != 0:
-                    ret = ret[0]
-                    if len(ret) != 0 and 'data' in ret.keys():
-                        data = transliterate(ret['data'], sanscript.SLP1, sanscript.IAST)
-                        ret = [data.replace("|", ".").replace("***", " || ").replace("**", " |\n").replace("*", "\n\n")]
+                ans = resp.json()
+                if len(ans) != 0:
+                    for r in ans:
+                        if len(r) != 0 and 'data' in r.keys():
+                            data = transliterate(r['data'], sanscript.SLP1, sanscript.IAST)
+                            ret.append(data.replace("|", ".").replace("***", " || ").replace("**", " |\n").replace("*", "\n\n") + '\n----\n')
             else:
                 ret = parse(resp.json())
         if len(ret) == 0:
