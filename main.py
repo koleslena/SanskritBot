@@ -10,6 +10,8 @@ import logging
 from response_parser import parse
 from dicts_service import get_translation, get_suggestion
 from shabda_service import get_forms
+import easyocr
+import torch
 
 APT = "AP90"
 WIL = "WIL"
@@ -43,6 +45,14 @@ logging.basicConfig(
     level=logging.WARNING
 )
 
+try:
+    cuda_is_available = torch.cuda.is_available()
+    if cuda_is_available:
+        torch.cuda.set_per_process_memory_fraction(0.4, 0)
+    reader = easyocr.Reader(['hi', 'en'], gpu=cuda_is_available)
+except Exception as e:
+    logger.error(e)
+
 TOKEN = os.environ.get("sansbot_token")
 
 message_size = 2000
@@ -62,6 +72,7 @@ def gen_main_menu():
     # markup.row_width = 2
     markup.add(KeyboardButton("/menu"),
                KeyboardButton("/dicts"),
+               KeyboardButton("/ocr"),
                KeyboardButton("/help"))
     return markup
 
@@ -240,6 +251,12 @@ def get_answer(message):
         bot.send_message(message.chat.id, "❗️ something went wrong 😢 try again later")
 
 
+# Handle '/ocr'
+@bot.message_handler(commands=['ocr'])
+def handle_actions(message):
+    msg = bot.send_message(message.chat.id, f"""Please send a photo """)
+
+
 # Handle '/menu'
 @bot.message_handler(commands=['menu'])
 def handle_actions(message):
@@ -329,6 +346,18 @@ def callback_query(call):
         logger.error(e)
         bot.send_message(call.from_user.id, '❗️ something went wrong try again later')
 
+
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    try:
+        fileId = message.photo[-1].file_id
+        file_info = bot.get_file(fileId)
+        downloaded_file = bot.download_file(file_info.file_path)
+        result = reader.readtext(downloaded_file, batch_size=1, detail=0)
+        bot.send_message(message.from_user.id, f"{' '.join(result)}")
+    except Exception as e:
+        logger.error(e)
+        bot.send_message(message.from_user.id, '❗️ something went wrong try again later')
 
 @bot.edited_message_handler(func=lambda message: True)
 def handle_edited_message(message):
