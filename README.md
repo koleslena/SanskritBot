@@ -33,14 +33,16 @@ Instant lookups across classic dictionaries:
 
 ### 📚 Data Sources & Credits
 
-Prefix	Title	Author(s)	Pages
+| Prefix | Title | Author(s) |
+| :---:   | :---: | :---: |
+| MW | Monier-Williams Sanskrit-English Dictionary | Monier-Williams, Leumann, Cappeller |
+| APTE | The Practical Sanskrit-English Dictionary | Vaman Shivram Apte |
+| PWG | Sanskrit Wörterbuch | Otto Böhtlingk, Rudolph Roth |
+| PW | Sanskrit-Wörterbuch in Kürzerer Fassung | Otto Böhtlingk |
+| BHS | Buddhist Hybrid Sanskrit Dictionary | Franklin Edgerton |
+| WIL | A Dictionary in Sanscrit and English | H.H. Wilson |
 
-* MW	Monier-Williams Sanskrit-English Dictionary	Monier-Williams, Leumann, Cappeller	1333
-* APTE	The Practical Sanskrit-English Dictionary	Vaman Shivram Apte	1196
-* PWG	Sanskrit Wörterbuch	Otto Böhtlingk, Rudolph Roth	4737
-* PW	Sanskrit-Wörterbuch in Kürzerer Fassung	Otto Böhtlingk	2141
-* BHS	Buddhist Hybrid Sanskrit Dictionary	Franklin Edgerton	634
-* WIL	A Dictionary in Sanscrit and English	H.H. Wilson	982
+##### Data from [COLOGNE](https://github.com/sanskrit-lexicon/COLOGNE)
 
 ### 🛠 Usage
 
