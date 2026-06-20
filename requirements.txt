@@ -1,6 +1,8 @@
-pyTelegramBotAPI
-indic_transliteration
-prettytable
+pydantic_settings
+
 requests
-telebot
+aiogram>=3.0.0
+indic-transliteration
+prettytable
 easyocr
+torch

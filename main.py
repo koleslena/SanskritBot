@@ -1,32 +1,39 @@
-from indic_transliteration import sanscript, detect
-from indic_transliteration.sanscript import transliterate
-import prettytable as pt
-
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-import datetime
-import os
-import logging
-from response_parser import parse
-from dicts_service import get_translation, get_suggestion
-from shabda_service import get_forms
+import asyncio
+import io
 import easyocr
+import prettytable as pt
 import torch
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from indic_transliteration import detect, sanscript
+from indic_transliteration.sanscript import transliterate
+import aiohttp
 
+# Импорты ваших локальных сервисов
+from dicts_service import get_suggestion, get_translation
+from response_parser import parse
+from shabda_service import get_forms
+from logger import logger
+
+from config import settings  
+
+# Константы словарей
 APT = "AP90"
 WIL = "WIL"
 MW = "MW"
 PW = "PW"
 PWG = "PWG"
 BHS = "BHS"
-
 DICTS = [APT, WIL, MW, PW, PWG, BHS]
 
 VIBHACTIES = ['pr(N)', 'dv(Acc)', 'tr(I)', 'ca(D)', 'pa(Abl)', 'Sa(G)', 'sa(L)', 'samb(V)']
 VACANAM = ['Sing', 'Du', 'Pl']
-
 LINGAS = {'P': 'masc', 'N': 'neut', 'S': 'fem', 'A': 'all'}
-
 AMARA = "AMARA"
 
 TRANSLATE = "translate"
@@ -34,77 +41,59 @@ SYNONYMS = "amarakosha"
 TRANSLIT = "translit"
 SHABDA = "shabda"
 
-logger = telebot.logger
+SUGGEST_ANSWER = "❓"
+MESSAGE_SIZE = 2000
 
-formatter = '[%(asctime)s] %(levelname)8s --- %(message)s (%(filename)s:%(lineno)s)'
-logging.basicConfig(
-    filename=f'bot-from-{datetime.datetime.now().date()}.log',
-    filemode='w',
-    format=formatter,
-    datefmt='%Y-%m-%d %H:%M:%S',
-    level=logging.WARNING
-)
-
+# Инициализация EasyOCR
 try:
     cuda_is_available = torch.cuda.is_available()
     if cuda_is_available:
         torch.cuda.set_per_process_memory_fraction(0.4, 0)
     reader = easyocr.Reader(['hi', 'en'], gpu=cuda_is_available)
 except Exception as e:
-    logger.error(e)
+    logger.error(f"EasyOCR Init Error: {e}")
 
-TOKEN = os.environ.get("sansbot_token")
-
-message_size = 2000
-
-SUGGEST_ANSWER = "❓"
-
-class Settings:
-    def __init__(self, action):
-        self.action = action
-        self.sdict = MW
-        
-bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
-selectedAction = {}
+# --- Генераторы клавиатур ---
 
 def gen_main_menu():
-    markup = ReplyKeyboardMarkup(True, False)
-    # markup.row_width = 2
-    markup.add(KeyboardButton("/menu"),
-               KeyboardButton("/dicts"),
-               KeyboardButton("/ocr"),
-               KeyboardButton("/help"))
-    return markup
+    builder = ReplyKeyboardBuilder()
+    builder.button(text="/menu")
+    builder.button(text="/dicts")
+    builder.button(text="/ocr")
+    builder.button(text="/help")
+    builder.adjust(2)
+    return builder.as_markup(resize_keyboard=True)
 
 
 def gen_markup_actions():
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(InlineKeyboardButton("TRANSLATE", callback_data=TRANSLATE),
-               InlineKeyboardButton("AMARAKOSHA", callback_data=SYNONYMS),
-               InlineKeyboardButton("SHABDA", callback_data=SHABDA),
-               InlineKeyboardButton("TRANSLITERATE", callback_data=TRANSLIT))
-    return markup
+    builder = InlineKeyboardBuilder()
+    builder.button(text="TRANSLATE", callback_data=TRANSLATE)
+    builder.button(text="AMARAKOSHA", callback_data=SYNONYMS)
+    builder.button(text="SHABDA", callback_data=SHABDA)
+    builder.button(text="TRANSLITERATE", callback_data=TRANSLIT)
+    builder.adjust(2)
+    return builder.as_markup()
 
 
 def gen_markup_dicts():
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(InlineKeyboardButton("MW", callback_data=MW),
-               InlineKeyboardButton("PW", callback_data=PW),
-               InlineKeyboardButton("PWG", callback_data=PWG),
-               InlineKeyboardButton("WIL", callback_data=WIL),
-               InlineKeyboardButton("BHS", callback_data=BHS),
-               InlineKeyboardButton("APTE", callback_data=APT),
-               )
-    return markup
+    builder = InlineKeyboardBuilder()
+    builder.button(text="MW", callback_data=MW)
+    builder.button(text="PW", callback_data=PW)
+    builder.button(text="PWG", callback_data=PWG)
+    builder.button(text="WIL", callback_data=WIL)
+    builder.button(text="BHS", callback_data=BHS)
+    builder.button(text="APTE", callback_data=APT)
+    builder.adjust(2)
+    return builder.as_markup()
+
+# --- Вспомогательные функции бизнес-логики ---
 
 def clean_text(text):
-    return text.strip().lstrip().rstrip().replace(',', '').replace(';', '').replace('.', '').replace('-', '') if text else ""
+    return text.strip().replace(',', '').replace(';', '').replace('.', '').replace('-', '') if text else ""
 
-def get_translit(message):
+def get_translit(text):
     try:
-        term = clean_text(message.text)
+        term = clean_text(text)
         if detect.detect(term) == sanscript.DEVANAGARI:
             return transliterate(term, sanscript.DEVANAGARI, sanscript.IAST)
         elif detect.detect(term) == sanscript.IAST:
@@ -130,59 +119,68 @@ def transliteration(term):
     elif detect.detect(term) == sanscript.HK:
         input_alp = 'hk'
         term = transliterate(term, sanscript.HK, sanscript.SLP1)
+    # logger.info(f"{term}, {input_alp}")
     return term, input_alp
 
-def get_translate(message):
+async def get_translate_async(session: aiohttp.ClientSession, text: str, sdict: str, has_reply_markup: bool):
+    """Обновленная функция: работает напрямую с асинхонным API без потоков"""
     try:
         input_alp = 'slp1'
-        term = orig_term = clean_text(message.text)
-        if not message.reply_markup:
+        term = orig_term = clean_text(text)
+        if not has_reply_markup:
             term, input_alp = transliteration(term)
-        chat_id = message.chat.id
-        sdict = selectedAction[chat_id].sdict if selectedAction[chat_id].sdict else MW
-        resp = get_translation(term, sdict)
-        ret = sugg = []
-        if resp.status_code // 10 == 20 and resp.text:
+        
+        # Напрямую вызываем асинструю функцию. Она уже возвращает готовый list/dict, а не объект ответа
+        ans = await get_translation(session, term, sdict)
+        ret = []
+        sugg = []
+        
+        if ans:  # Если данные успешно получены и список не пуст
             if sdict == AMARA:
-                ans = resp.json()
-                if len(ans) != 0:
-                    for r in ans:
-                        if len(r) != 0 and 'data' in r.keys():
-                            data = transliterate(r['data'], sanscript.SLP1, sanscript.IAST)
-                            ret.append(data.replace("|", ".").replace("***", " || ").replace("**", " |\n").replace("*", "\n\n") + '\n----\n')
+                for r in ans:
+                    if r and isinstance(r, dict) and 'data' in r:
+                        data = transliterate(r['data'], sanscript.SLP1, sanscript.IAST)
+                        ret.append(data.replace("|", ".").replace("***", " || ").replace("**", " |\n").replace("*", "\n\n") + '\n----\n')
             else:
-                ret = parse(resp.json())
+                # Передаем чистый JSON в вашу функцию фильтрации/парсинга
+                ret = parse(ans)
+                
         if len(ret) == 0:
-            sugg = get_suggestion(orig_term, sdict, input_alp)
+            # Напрямую вызываем асинхронный саджест
+            sugg = await get_suggestion(session, orig_term, sdict, input_alp)
+            
         return ret, sugg
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error in get_translate_async: {e}")
         return ['Ooopss..😢'], []
 
-def cut_chunk(str):
-    ancore = len(str)
-    for i in range(len(str) - 2, -1, -1):
-        if str[i] == '<' and str[i + 1] != '/':
+
+def cut_chunk(string_data):
+    """Остается без изменений (чистая синхронная функция)"""
+    ancore = len(string_data)
+    for i in range(len(string_data) - 2, -1, -1):
+        if string_data[i] == '<' and string_data[i + 1] != '/':
             ancore = i
             break
-    return (str[:ancore], ancore) if ancore != 2 else (str, len(str))
+    return (string_data[:ancore], ancore) if ancore != 2 else (string_data, len(string_data))
+
 
 def cut_answer(answer):
+    """Остается без изменений (чистая синхронная функция)"""
     answer_size = len(answer)
-
-    if answer_size > message_size:
+    if answer_size > MESSAGE_SIZE:
         lst = []
         chunks = 2
-        chunk_size = message_size
+        chunk_size = MESSAGE_SIZE
         for i in range(2, 50):
             chunks = i
             chunk_size = answer_size // i
-            if answer_size // i < message_size:
+            if answer_size // i < MESSAGE_SIZE:
                 break
         ancore = 0
         for i in range(chunks + 1):
-            if ancore+chunk_size <= answer_size:
-                mes, ancore_i = cut_chunk(answer[ancore: ancore+chunk_size])
+            if ancore + chunk_size <= answer_size:
+                mes, ancore_i = cut_chunk(answer[ancore: ancore + chunk_size])
                 ancore += ancore_i
             else:
                 mes = answer[ancore: answer_size]
@@ -190,38 +188,49 @@ def cut_answer(answer):
         return lst
     return [answer]
 
-def get_answer(message):
+
+async def handle_search_logic(session: aiohttp.ClientSession, text: str, has_reply_markup: bool, message: types.Message, state: FSMContext):
+    """
+    Обновленная общая асинхронная логика.
+    Первым аргументом теперь принимает активную HTTP-сессию бота.
+    """
     try:
-        chat_id = message.chat.id
-        if chat_id not in selectedAction:
-            selectedAction[chat_id] = Settings(TRANSLATE)
-        if selectedAction[chat_id].action == TRANSLIT:
-            bot.send_message(message.chat.id, get_translit(message))
-        elif selectedAction[chat_id].action in [TRANSLATE, SYNONYMS]:
-            lst, sugg = get_translate(message)
+        user_data = await state.get_data()
+        action = user_data.get("action", TRANSLATE)
+        sdict = user_data.get("sdict", MW)
+
+        if action == TRANSLIT:
+            await message.answer(get_translit(text))
+            
+        elif action in [TRANSLATE, SYNONYMS]:
+            # Передаем сессию внутрь
+            lst, sugg = await get_translate_async(session, text, sdict, has_reply_markup)
             res_answer = '\n'.join(lst)
             if len(res_answer) != 0:
-                if len(res_answer) < message_size:
-                    bot.send_message(message.chat.id, res_answer)
+                if len(res_answer) < MESSAGE_SIZE:
+                    await message.answer(res_answer)
                 else:
                     for answer in lst:
                         for part_answer in cut_answer(answer):
-                            bot.send_message(message.chat.id, part_answer)
+                            await message.answer(part_answer)
             else:
                 if not sugg or len(sugg) == 0:
-                    bot.send_message(message.chat.id, "🤷")
+                    await message.answer("🤷")
                 else:
-                    markup = InlineKeyboardMarkup()
-                    markup.row_width = 1
+                    builder = InlineKeyboardBuilder()
                     for s in sugg:
-                        markup.add(InlineKeyboardButton(s["name"], callback_data=s["value"]))
-                    bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
-        elif selectedAction[chat_id].action == SHABDA:
-            terms = message.text.split(";")
+                        builder.button(text=s["name"], callback_data=s["value"])
+                    builder.adjust(1)
+                    await message.answer(SUGGEST_ANSWER, reply_markup=builder.as_markup())
+                    
+        elif action == SHABDA:
+            terms = text.split(";")
             term = terms[0]
-            if not message.reply_markup:
+            if not has_reply_markup:
                 term, _ = transliteration(term)
-            lst, suggest_lst = get_forms(term, "" if len(terms) == 1 else terms[1])
+            
+            lst, suggest_lst = await get_forms(session, term, "" if len(terms) == 1 else terms[1])
+            
             if len(lst) == 1:
                 forms = lst[0]['forms'].split(";")
                 for i in range(3):
@@ -231,142 +240,175 @@ def get_answer(message):
                     for vibh in range(len(VIBHACTIES)):
                         form = transliterate(forms[vibh * 3 + i], sanscript.SLP1, sanscript.IAST).replace("-", ",\n")
                         table.add_row([VIBHACTIES[vibh], form])
-                    bot.send_message(message.chat.id, f'<pre>{table}</pre>')
+                    await message.answer(f'<pre>{table}</pre>')
             elif len(suggest_lst) != 0 or len(lst) != 0:
                 sugg = lst if len(lst) != 0 else suggest_lst
-                markup = InlineKeyboardMarkup()
-                markup.row_width = 1
+                builder = InlineKeyboardBuilder()
                 for s in sugg:
                     word = s['word']
                     linga = s['linga']
                     data = transliterate(word, sanscript.SLP1, sanscript.IAST)
-                    markup.add(InlineKeyboardButton(f'{data} ({LINGAS[linga]})', callback_data=f'{word};{linga}'))
-                bot.send_message(message.chat.id, SUGGEST_ANSWER, reply_markup=markup)
+                    # logger.info(f"word: {word}, data: {data}")
+                    builder.button(text=f'{data} ({LINGAS[linga]})', callback_data=f'{word};{linga}')
+                builder.adjust(1)
+                await message.answer(SUGGEST_ANSWER, reply_markup=builder.as_markup())
             else:
-                bot.send_message(message.chat.id, "🤷")
+                await message.answer("🤷")
         else:
-            bot.send_message(message.chat.id, "Please use menu /menu")
+            await message.answer("Please use menu /menu")
     except Exception as e:
-        logger.error(e)
-        bot.send_message(message.chat.id, "❗️ something went wrong 😢 try again later")
+        logger.error(f"Error in handle_search_logic: {e}")
+        await message.answer("❗️ something went wrong 😢 try again later")
+
+# --- Хэндлеры Aiogram ---
+
+bot = Bot(token=settings.SANSBOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+dp = Dispatcher(storage=MemoryStorage())
+
+# Глобальная переменная для сессии (или можно передавать через middleware)
+http_session: aiohttp.ClientSession = None
+
+@dp.startup()
+async def on_startup():
+    global http_session
+    # Создаем одну сессию на весь жизненный цикл бота
+    http_session = aiohttp.ClientSession()
+
+@dp.shutdown()
+async def on_shutdown():
+    global http_session
+    if http_session:
+        await http_session.close()
+
+@dp.message(Command("ocr"))
+async def handle_ocr_command(message: types.Message):
+    await message.answer("Please send a photo")
 
 
-# Handle '/ocr'
-@bot.message_handler(commands=['ocr'])
-def handle_actions(message):
-    msg = bot.send_message(message.chat.id, f"""Please send a photo """)
+@dp.message(Command("menu"))
+async def handle_menu_command(message: types.Message):
+    await message.answer("Please choose", reply_markup=gen_markup_actions())
 
 
-# Handle '/menu'
-@bot.message_handler(commands=['menu'])
-def handle_actions(message):
-    msg = bot.send_message(message.chat.id, f"""\
-    Please choose \
-    """, reply_markup=gen_markup_actions())
+@dp.message(Command("dicts"))
+async def handle_dicts_command(message: types.Message):
+    text = (
+        "Please choose the dictionary\n\n"
+        "<b>MW</b>  -- Monier-Williams Sanskrit-English Dictionary\n\n"
+        "<b>PW</b>  -- Böhtlingk Sanskrit-Wörterbuch in kürzerer Fassung\n\n"
+        "<b>PWG</b> -- Böhtlingk and Roth Grosses Petersburger Wörterbuch\n\n"
+        "<b>APTE</b> -- Apte Practical Sanskrit-English Dictionary\n\n"
+        "<b>WIL</b> -- Wilson Sanskrit-English Dictionary\n\n"
+        "<b>BHS</b> -- Edgerton Buddhist Hybrid Sanskrit Dictionary"
+    )
+    await message.answer(text, reply_markup=gen_markup_dicts())
 
 
-# Handle '/dicts'
-@bot.message_handler(commands=['dicts'])
-def handle_dicts(message):
-    msg = bot.send_message(message.chat.id, f"""\
-    Please choose the dictionary \
-    \n\n<b>MW</b>  -- Monier-Williams Sanskrit-English Dictionary \
-    \n\n<b>PW</b>  -- Böhtlingk Sanskrit-Wörterbuch in kürzerer Fassung \
-    \n\n<b>PWG</b> -- Böhtlingk and Roth Grosses Petersburger Wörterbuch \
-    \n\n<b>APTE</b> -- Apte Practical Sanskrit-English Dictionary \
-    \n\n<b>WIL</b> -- Wilson Sanskrit-English Dictionary \
-    \n\n<b>BHS</b> -- Edgerton Buddhist Hybrid Sanskrit Dictionary \
-    """, reply_markup=gen_markup_dicts())
+@dp.message(Command("start"))
+async def send_welcome(message: types.Message):
+    text = (
+        f"Hi, <i>{message.from_user.first_name}</i>, I am SanskritBot.\n\n"
+        "I can transliterate to or from DEVANAGARI\n\n"
+        "translate Sanskrit -> English (MW, APTE, WIL)\n\n"
+        "translate Sanskrit -> German (PW, PWG)\n\n"
+        "translate Buddhist Hybrid Sanskrit -> English (BHS)\n\n"
+        "find synonyms in AMARAKOSHA\n\n"
+        "find noun's forms in SHABDA\n\n"
+        "Please use menu /menu\n\n"
+        "For choosing dictionary call /dicts, by default we use MW\n\n"
+        "For help use /help command"
+    )
+    await message.answer(text, reply_markup=gen_main_menu())
 
 
-# Handle '/start'
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    msg = bot.send_message(message.chat.id, f"""\
-    Hi, <i>{message.from_user.first_name}</i>, I am SanskritBot.
-    \n\nI can transliterate to or from DEVANAGARI \
-    \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
-    \n\ntranslate Sanskrit -> German (PW, PWG) \
-    \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
-    \n\nfind synonyms in AMARAKOSHA \
-    \n\nfind noun's forms in SHABDA 
-    \n\nPlease use menu /menu \
-    \n\nFor choosing dictionary call /dicts, by default we use MW \
-    \n\nFor help use /help command \
-    """, reply_markup=gen_main_menu())
+@dp.message(Command("help"))
+async def send_help(message: types.Message):
+    text = (
+        "I can transliterate to or from DEVANAGARI\n\n"
+        "translate Sanskrit -> English (MW, APTE, WIL)\n\n"
+        "translate Sanskrit -> German (PW, PWG)\n\n"
+        "translate Buddhist Hybrid Sanskrit -> English (BHS)\n\n"
+        "find synonyms in AMARAKOSHA\n\n"
+        "find noun's forms in SHABDA\n\n"
+        "Please use menu /menu\n\n"
+        "For choosing dictionary call /dicts, by default we use MW\n\n"
+        "Dictionaries data from https://sanskrit-lexicon.uni-koeln.de/\n\n"
+        "Amarakosha data from https://ashtadhyayi.com/\n\n"
+        "Questions and suggestions @ekolesnikova"
+    )
+    await message.answer(text, reply_markup=gen_main_menu())
 
 
-# Handle '/help'
-@bot.message_handler(commands=['help'])
-def send_help(message):
-    msg = bot.send_message(message.chat.id, f"""\
-    \n\nI can transliterate to or from DEVANAGARI \
-    \n\ntranslate Sanskrit -> English (MW, APTE, WIL) \
-    \n\ntranslate Sanskrit -> German (PW, PWG) \
-    \n\ntranslate Buddhist Hybrid Sanskrit -> English (BHS) \
-    \n\nfind synonyms in AMARAKOSHA \
-    \n\nfind noun's forms in SHABDA 
-    \n\nPlease use menu /menu \
-    \n\nFor choosing dictionary call /dicts, by default we use MW 
-    \n\nDictionaries data from https://sanskrit-lexicon.uni-koeln.de/ \
-    \n\nAmarakosha data from https://ashtadhyayi.com/ \
-    \n\nQuestions and suggestions @ekolesnikova \
-""", reply_markup=gen_main_menu())
-
-
-@bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
+@dp.callback_query()
+async def callback_query_handler(call: types.CallbackQuery, state: FSMContext):
     try:
-        chat_id = call.message.chat.id
-        if chat_id not in selectedAction:
-            selectedAction[chat_id] = Settings(TRANSLATE)
+        user_data = await state.get_data()
+        action = user_data.get("action", TRANSLATE)
+        sdict = user_data.get("sdict", MW)
+
         if call.data in [TRANSLIT, TRANSLATE, SYNONYMS, SHABDA]:
-            selectedAction[chat_id].action = call.data
+            action = call.data
             if call.data == SYNONYMS:
-                selectedAction[chat_id].sdict = AMARA
+                sdict = AMARA
             if call.data == TRANSLATE:
-                selectedAction[chat_id].sdict = MW
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS, SHABDA] else f"{call.data} selected. Send your word or choose the dictionary" 
-            bot.send_message(call.from_user.id, text)
+                sdict = MW
+                
+            await state.update_data(action=action, sdict=sdict)
+            await call.message.edit_reply_markup(reply_markup=None)
+            
+            text = f"{call.data} selected. Send your word" if call.data in [TRANSLIT, SYNONYMS, SHABDA] else f"{call.data} selected. Send your word or choose the dictionary"
+            await call.message.answer(text)
 
         elif call.data in DICTS:
-            selectedAction[chat_id].sdict = call.data
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id, message_id=call.message.id, reply_markup=InlineKeyboardMarkup())
-            bot.send_message(call.from_user.id, f"{call.data} selected. Send your text")
+            sdict = call.data
+            await state.update_data(sdict=sdict)
+            await call.message.edit_reply_markup(reply_markup=None)
+            await call.message.answer(f"{call.data} selected. Send your text")
 
         else:
             if call.message.text == SUGGEST_ANSWER:
-                call.message.text = call.data
-                get_answer(call.message)
+                has_reply_markup = bool(call.message.reply_markup)
+                # Передаем инлайн-клик как готовый текст для поиска
+                await handle_search_logic(http_session, call.data, has_reply_markup, call.message, state)
             else:
-                bot.send_message(call.from_user.id, "🤷")
-
+                await call.message.answer("🤷")
+                
+        await call.answer()
     except Exception as e:
         logger.error(e)
-        bot.send_message(call.from_user.id, '❗️ something went wrong try again later')
+        await call.message.answer('❗️ something went wrong try again later')
 
 
-@bot.message_handler(content_types=['photo'])
-def handle_photo(message):
+@dp.message(F.photo)
+async def handle_photo(message: types.Message):
     try:
-        fileId = message.photo[-1].file_id
-        file_info = bot.get_file(fileId)
-        downloaded_file = bot.download_file(file_info.file_path)
-        result = reader.readtext(downloaded_file, batch_size=1, detail=0)
-        bot.send_message(message.from_user.id, f"{' '.join(result)}")
+        # Получаем файл фотографии наилучшего качества в буфер памяти
+        photo = message.photo[-1]
+        file_buffer = io.BytesIO()
+        await bot.download(photo, destination=file_buffer)
+        file_bytes = file_buffer.getvalue()
+        
+        # EasyOCR вычисления выносим в отдельный поток, чтобы не блокировать цикл событий
+        result = await asyncio.to_thread(reader.readtext, file_bytes, batch_size=1, detail=0)
+        
+        await message.answer(f"{' '.join(result)}")
     except Exception as e:
         logger.error(e)
-        bot.send_message(message.from_user.id, '❗️ something went wrong try again later')
-
-@bot.edited_message_handler(func=lambda message: True)
-def handle_edited_message(message):
-    get_answer(message)
+        await message.answer('❗️ something went wrong try again later')
 
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    get_answer(message)
+@dp.message(F.text)
+@dp.edited_message(F.text)
+async def handle_message_or_edit(message: types.Message, state: FSMContext):
+    """Хэндлер для обычного текста и отредактированных сообщений"""
+    has_reply_markup = bool(message.reply_markup)
+    await handle_search_logic(http_session, message.text, has_reply_markup, message, state)
 
 
-bot.polling(none_stop=True, interval=0)
+async def main():
+    logger.warning("Starting bot...")
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
