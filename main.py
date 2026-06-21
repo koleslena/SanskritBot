@@ -18,9 +18,11 @@ import aiohttp
 from dicts_service import get_suggestion, get_translation
 from response_parser import parse
 from shabda_service import get_forms
-from logger import logger
+import logging
 
 from config import settings  
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Константы словарей
 APT = "AP90"
@@ -51,7 +53,7 @@ try:
         torch.cuda.set_per_process_memory_fraction(0.4, 0)
     reader = easyocr.Reader(['hi', 'en'], gpu=cuda_is_available)
 except Exception as e:
-    logger.error(f"EasyOCR Init Error: {e}")
+    logging.error(f"EasyOCR Init Error: {e}")
 
 # --- Генераторы клавиатур ---
 
@@ -105,7 +107,7 @@ def get_translit(text):
         else:
             return transliterate(term, sanscript.SLP1, sanscript.DEVANAGARI)
     except Exception as e:
-        logger.error(e)
+        logging.error(e)
         return 'Ooopss..'
 
 def transliteration(term):
@@ -119,7 +121,7 @@ def transliteration(term):
     elif detect.detect(term) == sanscript.HK:
         input_alp = 'hk'
         term = transliterate(term, sanscript.HK, sanscript.SLP1)
-    # logger.info(f"{term}, {input_alp}")
+    # logging.info(f"{term}, {input_alp}")
     return term, input_alp
 
 async def get_translate_async(session: aiohttp.ClientSession, text: str, sdict: str, has_reply_markup: bool):
@@ -151,7 +153,7 @@ async def get_translate_async(session: aiohttp.ClientSession, text: str, sdict: 
             
         return ret, sugg
     except Exception as e:
-        logger.error(f"Error in get_translate_async: {e}")
+        logging.error(f"Error in get_translate_async: {e}")
         return ['Ooopss..😢'], []
 
 
@@ -248,7 +250,7 @@ async def handle_search_logic(session: aiohttp.ClientSession, text: str, has_rep
                     word = s['word']
                     linga = s['linga']
                     data = transliterate(word, sanscript.SLP1, sanscript.IAST)
-                    # logger.info(f"word: {word}, data: {data}")
+                    # logging.info(f"word: {word}, data: {data}")
                     builder.button(text=f'{data} ({LINGAS[linga]})', callback_data=f'{word};{linga}')
                 builder.adjust(1)
                 await message.answer(SUGGEST_ANSWER, reply_markup=builder.as_markup())
@@ -257,7 +259,7 @@ async def handle_search_logic(session: aiohttp.ClientSession, text: str, has_rep
         else:
             await message.answer("Please use menu /menu")
     except Exception as e:
-        logger.error(f"Error in handle_search_logic: {e}")
+        logging.error(f"Error in handle_search_logic: {e}")
         await message.answer("❗️ something went wrong 😢 try again later")
 
 # --- Хэндлеры Aiogram ---
@@ -375,7 +377,7 @@ async def callback_query_handler(call: types.CallbackQuery, state: FSMContext):
                 
         await call.answer()
     except Exception as e:
-        logger.error(e)
+        logging.error(e)
         await call.message.answer('❗️ something went wrong try again later')
 
 
@@ -393,7 +395,7 @@ async def handle_photo(message: types.Message):
         
         await message.answer(f"{' '.join(result)}")
     except Exception as e:
-        logger.error(e)
+        logging.error(e)
         await message.answer('❗️ something went wrong try again later')
 
 
@@ -406,7 +408,7 @@ async def handle_message_or_edit(message: types.Message, state: FSMContext):
 
 
 async def main():
-    logger.warning("Starting bot...")
+    logging.warning("Starting bot...")
     await dp.start_polling(bot)
 
 
