@@ -6,3 +6,5 @@ indic-transliteration
 prettytable
 easyocr
 torch
+
+Pillow

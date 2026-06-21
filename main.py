@@ -14,6 +14,10 @@ from indic_transliteration import detect, sanscript
 from indic_transliteration.sanscript import transliterate
 import aiohttp
 
+from PIL import Image
+import io
+
+
 # Импорты ваших локальных сервисов
 from dicts_service import get_suggestion, get_translation
 from response_parser import parse
@@ -89,6 +93,23 @@ def gen_markup_dicts():
     return builder.as_markup()
 
 # --- Вспомогательные функции бизнес-логики ---
+
+def squizee(photo_bytes):
+
+    # файл картинки в bytes (photo_bytes)
+    image = Image.open(io.BytesIO(photo_bytes))
+
+    # Если одна из сторон больше 1500 пикселей, пропорционально уменьшаем
+    max_size = 1500
+    if image.width > max_size or image.height > max_size:
+        image.thumbnail((max_size, max_size))
+        
+        # Сохраняем сжатую картинку обратно в байты для EasyOCR
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='JPEG', quality=85) # quality=85 снизит вес файла
+        photo_bytes = img_byte_arr.getvalue()
+    
+    return photo_bytes
 
 def clean_text(text):
     return text.strip().replace(',', '').replace(';', '').replace('.', '').replace('-', '') if text else ""
@@ -389,9 +410,11 @@ async def handle_photo(message: types.Message):
         file_buffer = io.BytesIO()
         await bot.download(photo, destination=file_buffer)
         file_bytes = file_buffer.getvalue()
+
+        file_bytes = squizee(file_bytes)
         
         # EasyOCR вычисления выносим в отдельный поток, чтобы не блокировать цикл событий
-        result = await asyncio.to_thread(reader.readtext, file_bytes, batch_size=1, detail=0)
+        result = await asyncio.to_thread(reader.readtext, file_bytes, canvas_size=1500, batch_size=1, detail=0)
         
         await message.answer(f"{' '.join(result)}")
     except Exception as e:
